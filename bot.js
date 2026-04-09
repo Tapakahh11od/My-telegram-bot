@@ -1,6 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
-const { exec } = require('child_process');
 const https = require('https');
 
 // 📦 1. Завантаження конфігурації
@@ -55,7 +54,7 @@ const mainMenu = {
     [{ text: '💱 Курс валют', callback_data: 'currency' }],
     [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
     [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
-    [{ text: '🌐 Пінг роутера', callback_data: 'ping_router' }],
+    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }],
     [{ text: '🆔 ID чату', callback_data: 'chat_id' }]
   ]
 };
@@ -85,7 +84,7 @@ bot.on('callback_query', async (cb) => {
       bot.sendMessage(chatId, '📜 **Повний список:**\n\n' + sorted.map(p => `🗓 ${p.date} — ${p.name}`).join('\n'), { parse_mode: 'Markdown' });
       break;
     case 'ping_router':
-      bot.sendMessage(chatId, '📡 Пінгую роутер...').then(() => pingRouterOnce(chatId));
+      bot.sendMessage(chatId, '📡 Перевіряю доступність мережі...').then(() => pingRouterOnce(chatId));
       break;
     case 'chat_id':
       bot.sendMessage(chatId, `🆔 ID цього чату: \`${chatId}\``, { parse_mode: 'Markdown' });
@@ -121,10 +120,14 @@ function getCurrency() {
   });
 }
 
+// ================= 🌐 ПЕРЕВІРКА ІНТЕРНЕТУ (HTTP-версія для Render) =================
 function pingRouterOnce(chatId) {
-  if (!ROUTER_IP) return bot.sendMessage(chatId, '❌ IP роутера не вказано');
-  exec(`ping -n 1 ${ROUTER_IP}`, { timeout: 4000 }, (err) => {
-    bot.sendMessage(chatId, err ? `🔴 Роутер офлайн!` : `🟢 Роутер онлайн!`);
+  https.get('https://api.monobank.ua', { timeout: 5000 }, (res) => {
+    // Якщо отримали відповідь (статус 200 або будь-який інший від сервера)
+    bot.sendMessage(chatId, `🟢 **Мережа працює!**\n✅ З'єднання стабільне.`, { parse_mode: 'Markdown' });
+  }).on('error', (err) => {
+    // Якщо помилка з'єднання або тайм-аут
+    bot.sendMessage(chatId, `🔴 **Проблеми з мережею!**\n❌ Не вдається з'єднатися з зовнішнім світом.`, { parse_mode: 'Markdown' });
   });
 }
 
@@ -167,23 +170,26 @@ setInterval(() => {
     lastBirthdayNotified = dateStr;
   }
 
-  // 4. Фоновий пінг роутера (перевірка стану мережі)
-  if (ROUTER_IP) {
-    exec(`ping -n 1 ${ROUTER_IP}`, { timeout: 4000 }, (err) => {
-      const isOnline = !err;
-      if (!isOnline && !routerAutoState.isOffline) {
-        routerAutoState.isOffline = true;
-        bot.sendMessage(ADMIN_CHAT_ID, `🔴 **Інтернет зник!**\n📡 ${ROUTER_IP} не відповідає.\n⏰ ${currentTime}`, { parse_mode: 'Markdown' });
-      } else if (isOnline && routerAutoState.isOffline) {
-        routerAutoState.isOffline = false;
-        bot.sendMessage(ADMIN_CHAT_ID, `🟢 **Інтернет відновлено!**\n✅ ${ROUTER_IP} в мережі.\n⏰ ${currentTime}`, { parse_mode: 'Markdown' });
-      }
-    });
-  }
+  // 4. Фоновий пінг (перевірка інтернету через HTTP)
+  https.get('https://api.monobank.ua', { timeout: 5000 }, (res) => {
+    // Інтернет Є
+    if (routerAutoState.isOffline) {
+      routerAutoState.isOffline = false;
+      bot.sendMessage(ADMIN_CHAT_ID, `🟢 **Інтернет відновлено!**\n✅ З'єднання стабільне.\n⏰ ${currentTime}`, { parse_mode: 'Markdown' });
+      console.log(`🟢 ${currentTime} - Інтернет онлайн`);
+    }
+  }).on('error', (err) => {
+    // Інтернету НЕМАЄ
+    if (!routerAutoState.isOffline) {
+      routerAutoState.isOffline = true;
+      bot.sendMessage(ADMIN_CHAT_ID, `🔴 **Інтернет зник!**\n❌ Немає з'єднання з зовнішнім світом.\n⏰ ${currentTime}`, { parse_mode: 'Markdown' });
+      console.log(`🔴 ${currentTime} - Інтернет офлайн`);
+    }
+  });
 
 }, 60000); // Запускається кожні 60 секунд
 
-// 🌐 HTTP-сервер для Koyeb
+// 🌐 HTTP-сервер для Render
 http.createServer((_, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('✅ Bot is alive');
