@@ -44,7 +44,7 @@ bot.on('message', (msg) => {
   // Перевіряємо, чи це точно слово "кіт" (і не команда)
   if (text === 'кіт') {
     // 🎲 Випадковий вибір відповіді
-    const responses = ['🐱 Мяу!', '🐱 Кусь!'];
+    const responses = ['🐱 Тицяє лапкою і каже маааау!', '🐱 Робить кусь за жопку!'];
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     
     console.log(`🐱 Отримано "кіт", відправляю: ${randomResponse}`);
