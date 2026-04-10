@@ -2,30 +2,30 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
 
-// 📦 1. Завантаження конфігурації
-let localConfig = { settings: {}, router: {} };
-try { localConfig = require('./config.json'); } catch (e) {}
-
-const BOT_TOKEN = process.env.BOT_TOKEN || localConfig.settings.BOT_TOKEN;
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || localConfig.settings.ADMIN_CHAT_ID;
-const ROUTER_IP = process.env.ROUTER_IP || localConfig.router.ip;
+// 🔐 Змінні середовища (ТІЛЬКИ з Render)
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const ROUTER_IP = process.env.ROUTER_IP;
 
 // 🎂 Дні народження
 let BIRTHDAYS = [];
-if (process.env.BIRTHDAYS) {
-  try { BIRTHDAYS = JSON.parse(process.env.BIRTHDAYS); } 
-  catch (e) { console.error('❌ Помилка BIRTHDAYS у змінних'); }
-} else {
-  try { BIRTHDAYS = require('./birthdays.json'); } 
-  catch (e) { console.log('⚠️ birthdays.json не знайдено, список порожній'); }
-}
+try { BIRTHDAYS = require('./birthdays.json'); } 
+catch (e) { console.log('⚠️ birthdays.json не знайдено, список порожній'); }
 
 // 📅 Розклад завдань
 let SCHEDULE = [];
 try { SCHEDULE = require('./schedule.json'); } 
 catch (e) { console.log('⚠️ schedule.json не знайдено, розкладу немає.'); }
 
-if (!BOT_TOKEN) { console.error('❌ Вкажи BOT_TOKEN'); process.exit(1); }
+// 🔥 Перевірка обов'язкових змінних
+if (!BOT_TOKEN) {
+  console.error('❌ ПОМИЛКА: Не знайдено BOT_TOKEN у змінних середовища!');
+  process.exit(1);
+}
+if (!ADMIN_CHAT_ID) {
+  console.error('❌ ПОМИЛКА: Не знайдено ADMIN_CHAT_ID у змінних середовища!');
+  process.exit(1);
+}
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
@@ -43,19 +43,23 @@ bot.on('message', (msg) => {
   
   // Перевіряємо, чи це точно слово "кіт" (і не команда)
   if (text === 'кіт') {
-    console.log('🐱 Отримано "кіт", відправляю Мяу!');
-    bot.sendMessage(msg.chat.id, '🐱 Мяу!');
+    // 🎲 Випадковий вибір відповіді
+    const responses = ['🐱 Мяу!', '🐱 Кусь!'];
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    
+    console.log(`🐱 Отримано "кіт", відправляю: ${randomResponse}`);
+    bot.sendMessage(msg.chat.id, randomResponse);
   }
 });
 
 // ================= 📋 МЕНЮ (Кнопки) =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс валют', callback_data: 'currency' }],
-    [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
-    [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
-    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }],
-    [{ text: '🆔 ID чату', callback_data: 'chat_id' }]
+    [{ text: '💱 Курс валют', callback_ 'currency' }],
+    [{ text: '🎂 Хто сьогодні іменинник?', callback_ 'today_bd' }],
+    [{ text: '📜 Весь список ДН', callback_ 'list_bd' }],
+    [{ text: '🌐 Перевірка інтернету', callback_ 'ping_router' }],
+    [{ text: '🆔 ID чату', callback_ 'chat_id' }]
   ]
 };
 
@@ -111,8 +115,8 @@ function getCurrency() {
           const usd = json.find(r => r.currencyCodeA === 840 && r.currencyCodeB === 980);
           const eur = json.find(r => r.currencyCodeA === 978 && r.currencyCodeB === 980);
           let t = '💱 **Monobank**\n\n';
-          if (usd) t += `🇺🇸 USD: 🟢 ${usd.rateBuy} / 🔴 ${usd.rateSell}\n`;
-          if (eur) t += `🇪🇺 EUR: 🟢 ${eur.rateBuy} / 🔴 ${eur.rateSell}\n`;
+          if (usd) t += `🇺 USD: 🟢 ${usd.rateBuy} / 🔴 ${usd.rateSell}\n`;
+          if (eur) t += `🇪 EUR: 🟢 ${eur.rateBuy} / 🔴 ${eur.rateSell}\n`;
           resolve(t + '\n🟢 купівля | 🔴 продаж');
         } catch { resolve('❌ Помилка завантаження курсу.'); }
       });
