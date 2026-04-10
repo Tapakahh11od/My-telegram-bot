@@ -51,21 +51,21 @@ bot.on('message', (msg) => {
 // ================= 📋 МЕНЮ =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс валют', callback_ 'currency' }],
-    [{ text: '🎂 Хто сьогодні іменинник?', callback_ 'today_bd' }],
-    [{ text: '📜 Весь список ДН', callback_ 'list_bd' }],
-    [{ text: '🌐 Перевірка інтернету', callback_ 'ping_router' }],
-    [{ text: '🆔 ID чату', callback_ 'chat_id' }],
-    [{ text: '💸 Облік витрат', callback_ 'expenses_menu' }] // 🔥 НОВА КНОПКА
+    [{ text: '💱 Курс валют', callback_data: 'currency' }],
+    [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
+    [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
+    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }],
+    [{ text: '🆔 ID чату', callback_data: 'chat_id' }],
+    [{ text: '💸 Облік витрат', callback_data: 'expenses_menu' }]
   ]
 };
 
 const expensesMenu = {
   inline_keyboard: [
-    [{ text: '➕ Додати витрату', callback_ 'add_expense' }],
-    [{ text: '📅 Витрати за сьогодні', callback_ 'today_expenses' }],
-    [{ text: '📊 Витрати за місяць', callback_ 'month_expenses' }],
-    [{ text: '🔙 Назад', callback_ 'back_to_main' }]
+    [{ text: '➕ Додати витрату', callback_data: 'add_expense' }],
+    [{ text: '📅 Витрати за сьогодні', callback_data: 'today_expenses' }],
+    [{ text: '📊 Витрати за місяць', callback_data: 'month_expenses' }],
+    [{ text: '🔙 Назад', callback_data: 'back_to_main' }]
   ]
 };
 
@@ -81,10 +81,10 @@ function getMonthMenu() {
   for (let i = 0; i < months.length; i += 3) {
     keyboard.push(months.slice(i, i+3).map(m => ({
       text: m.text,
-      callback_ `month_${year}_${m.val}`
+      callback_data: `month_${year}_${m.val}`
     })));
   }
-  keyboard.push([{ text: '🔙 Назад', callback_ 'expenses_menu' }]);
+  keyboard.push([{ text: '🔙 Назад', callback_data: 'expenses_menu' }]);
   return { inline_keyboard: keyboard };
 }
 
@@ -93,7 +93,7 @@ bot.onText(/\/bot/, (msg) => {
   bot.sendMessage(msg.chat.id, '📋 **Головне меню**\nОберіть функцію:', { reply_markup: mainMenu, parse_mode: 'Markdown' });
 });
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, '👋 Привіт! Натисни /бот для меню.', { parse_mode: 'Markdown' });
+  bot.sendMessage(msg.chat.id, '👋 Привіт! Натисни /bot для меню.', { parse_mode: 'Markdown' });
 });
 
 // 💸 Швидке додавання витрати
@@ -164,10 +164,17 @@ bot.on('callback_query', async (cb) => {
 async function fetchFromGist() {
   try {
     const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
+      headers: { 
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'User-Agent': 'Megumin-Bot'
+      }
     });
-    if (!res.ok) throw new Error('Gist API error');
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gist API error ${res.status}: ${errText}`);
+    }
     const data = await res.json();
+    if (!data.files || !data.files['expenses.json']) return {};
     return JSON.parse(data.files['expenses.json'].content);
   } catch (e) {
     console.error('❌ Gist read error:', e.message);
@@ -177,18 +184,23 @@ async function fetchFromGist() {
 
 async function saveToGist(newData) {
   try {
-    await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
       method: 'PATCH',
       headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json'
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Megumin-Bot'
       },
       body: JSON.stringify({
         files: { 'expenses.json': { content: JSON.stringify(newData, null, 2) } }
       })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`❌ Gist write error ${res.status}: ${errText}`);
+    }
   } catch (e) {
-    console.error('❌ Gist write error:', e.message);
+    console.error('❌ Gist save exception:', e.message);
   }
 }
 
