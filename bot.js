@@ -55,11 +55,11 @@ bot.on('message', (msg) => {
 // ================= 📋 МЕНЮ (Кнопки) =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс валют', callback_ 'currency' }],
-    [{ text: '🎂 Хто сьогодні іменинник?', callback_ 'today_bd' }],
-    [{ text: '📜 Весь список ДН', callback_ 'list_bd' }],
-    [{ text: '🌐 Перевірка інтернету', callback_ 'ping_router' }],
-    [{ text: '🆔 ID чату', callback_ 'chat_id' }]
+    [{ text: '💱 Курс валют', callback_data: 'currency' }],
+    [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
+    [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
+    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }],
+    [{ text: '🆔 ID чату', callback_data: 'chat_id' }]
   ]
 };
 
