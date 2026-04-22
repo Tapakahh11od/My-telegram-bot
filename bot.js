@@ -5,10 +5,10 @@ const axios = require('axios');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+let ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 
-if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
-  console.error('❌ Missing ENV');
+if (!BOT_TOKEN) {
+  console.error('❌ Missing BOT_TOKEN');
   process.exit(1);
 }
 
@@ -27,34 +27,38 @@ try {
 }
 
 // ================= BOT =================
-const bot = new TelegramBot(BOT_TOKEN, {
-  polling: {
-    params: {
-      timeout: 10
-    }
-  }
-});
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// ================= SAFETY =================
-process.on('unhandledRejection', (e) => {
-  console.log('Unhandled:', e.message);
-});
-
-// ================= MEMORY =================
 let sentTasks = new Set();
 let lastDate = null;
 
-// ================= CAT =================
+// ================= SAFE SEND =================
+async function safeSend(chatId, text, options = {}) {
+  try {
+    return await bot.sendMessage(chatId, text, options);
+  } catch (e) {
+    console.log('❌ SEND ERROR:', e.message);
+  }
+}
+
+// ================= AUTO DETECT CHAT ID (FIX FOR SUPERGROUP) =================
 bot.on('message', (msg) => {
+  if (!ADMIN_CHAT_ID) {
+    ADMIN_CHAT_ID = msg.chat.id;
+    console.log('📌 Auto ADMIN_CHAT_ID set:', ADMIN_CHAT_ID);
+  }
+
   if (!msg.text) return;
 
+  // ================= CAT =================
   if (msg.text.toLowerCase() === 'кіт') {
     const arr = [
       '🐱 Тицяє лапкою і каже маааау!',
       '🐱 Робить кусь за жопку!',
       '🐱 Чорне падло спить! Храп-храп!'
     ];
-    bot.sendMessage(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
+
+    safeSend(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
   }
 });
 
@@ -69,7 +73,7 @@ const mainMenu = {
 
 // ================= COMMANDS =================
 bot.onText(/\/start|\/bot/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📋 Меню', { reply_markup: mainMenu });
+  safeSend(msg.chat.id, '📋 Котоменю', { reply_markup: mainMenu });
 });
 
 // ================= CALLBACK =================
@@ -87,14 +91,14 @@ bot.on('callback_query', async (q) => {
       const usd = res.data.find(c => c.currencyCodeA === 840 && c.currencyCodeB === 980);
       const eur = res.data.find(c => c.currencyCodeA === 978 && c.currencyCodeB === 980);
 
-      bot.sendMessage(
+      safeSend(
         chatId,
         `💱 Курс валют\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
         `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
-    } catch (e) {
-      bot.sendMessage(chatId, '❌ Помилка курсу');
+    } catch {
+      safeSend(chatId, '❌ Помилка курсу');
     }
   }
 
@@ -108,15 +112,15 @@ bot.on('callback_query', async (q) => {
 
     const bd = BIRTHDAYS.find(x => x.date === today);
 
-    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні нікого');
+    safeSend(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні нікого');
   }
 
   if (data === 'list_bd') {
-    bot.sendMessage(chatId, BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
+    safeSend(chatId, BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
   }
 });
 
-// ================= SCHEDULER (FIXED 100%) =================
+// ================= FIXED SCHEDULER =================
 function getKyivTime() {
   return new Date().toLocaleTimeString('uk-UA', {
     timeZone: 'Europe/Kyiv',
@@ -126,7 +130,7 @@ function getKyivTime() {
   });
 }
 
-function getDateKey() {
+function getDate() {
   return new Date().toLocaleDateString('sv-SE', {
     timeZone: 'Europe/Kyiv'
   });
@@ -134,13 +138,13 @@ function getDateKey() {
 
 setInterval(() => {
   const time = getKyivTime();
-  const today = getDateKey();
+  const today = getDate();
 
-  // reset кожного дня
+  // reset щодня
   if (lastDate !== today) {
     sentTasks.clear();
     lastDate = today;
-    console.log('🔄 New day reset scheduler');
+    console.log('🔄 New day reset');
   }
 
   SCHEDULE.forEach(task => {
@@ -149,19 +153,16 @@ setInterval(() => {
     const key = `${today}-${task.time}-${task.message}`;
 
     if (task.time === time && !sentTasks.has(key)) {
-      try {
-        bot.sendMessage(ADMIN_CHAT_ID, task.message);
-        sentTasks.add(key);
-        console.log('📢 SENT:', task.time, task.message);
-      } catch (e) {
-        console.log('Send error:', e.message);
-      }
+      safeSend(ADMIN_CHAT_ID, task.message);
+      sentTasks.add(key);
+
+      console.log('📢 SENT:', task.message);
     }
   });
 
 }, 5000);
 
-// ================= SERVER =================
+// ================= SERVER (KEEP ALIVE) =================
 http.createServer((_, res) => {
   res.end('OK');
 }).listen(process.env.PORT || 3000);
