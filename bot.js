@@ -3,213 +3,163 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
 
-// 🔐 ENV
+// ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const ROUTER_IP = process.env.ROUTER_IP;
 
-// Перевірка змінних
-if (!BOT_TOKEN) {
-  console.error('❌ Не вистачає BOT_TOKEN');
-  process.exit(1);
-}
-if (!ADMIN_CHAT_ID) {
-  console.error('❌ Не вистачає ADMIN_CHAT_ID');
+if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
+  console.error('❌ Missing ENV vars');
   process.exit(1);
 }
 
-// 🎂 Дні народження
+// ================= DATA =================
 let BIRTHDAYS = [];
 try {
-  const raw = require('./birthdays.json');
-  BIRTHDAYS = raw.map(b => ({
-    name: (b.name || '').trim(),
-    date: (b.date || '').trim()
-  }));
-} catch (e) {
-  console.log('⚠️ birthdays.json не знайдено');
-}
+  BIRTHDAYS = require('./birthdays.json');
+} catch {}
 
-// 📅 Розклад
 let SCHEDULE = [];
 try {
-  const raw = require('./schedule.json');
-  SCHEDULE = raw.map(task => ({
-    time: (task.time || '').trim(),
-    message: (task.message || '').trim(),
-    active: task.active !== false,
-    userId: task.userId
-  }));
-  console.log('✅ schedule.json завантажено');
-} catch (e) {
-  console.log('⚠️ schedule.json не знайдено');
+  SCHEDULE = require('./schedule.json');
+  console.log('✅ schedule loaded');
+} catch {
+  console.log('⚠️ schedule missing');
 }
 
+// ================= BOT =================
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 📊 Стани
-let routerAutoState = { isOffline: false };
-let sentScheduleTasks = [];
+let sentTasks = [];
+let routerState = { offline: false };
 
-// ================= 🐱 КІТ =================
+// ================= CAT =================
 bot.on('message', (msg) => {
   if (!msg.text) return;
-  const text = msg.text.trim().toLowerCase();
-  if (text === 'кіт') {
-    const responses = ['🐱 Тицяє лапкою і каже маааау!', '🐱 Робить кусь за жопку!'];
-    const random = responses[Math.floor(Math.random() * responses.length)];
-    bot.sendMessage(msg.chat.id, random);
+
+  if (msg.text.toLowerCase() === 'кіт') {
+    const arr = [
+      '🐱 Мяу!',
+      '🐱 Кусь!',
+      '🐱 Пішов спати'
+    ];
+    bot.sendMessage(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
   }
 });
 
-// ================= 📋 МЕНЮ =================
+// ================= MENU =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс валют', callback_data: 'currency' }],
-    [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
-    [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
-    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }]
+    [{ text: '💱 Курс', callback_data: 'currency' }],
+    [{ text: '🎂 ДН сьогодні', callback_data: 'today_bd' }],
+    [{ text: '📜 Список ДН', callback_data: 'list_bd' }],
+    [{ text: '🌐 Інтернет', callback_data: 'ping_router' }]
   ]
 };
 
-// ================= 🚀 КОМАНДИ =================
-bot.onText(/\/bot/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📋 Меню:', { reply_markup: mainMenu });
+// ================= COMMANDS =================
+bot.onText(/\/start|\/bot/, (msg) => {
+  bot.sendMessage(msg.chat.id, '📋 Меню', { reply_markup: mainMenu });
 });
 
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, '👋 Привіт! Надішліть /bot для меню', { reply_markup: mainMenu });
-});
+// ================= CALLBACK =================
+bot.on('callback_query', async (q) => {
+  const chatId = q.message.chat.id;
+  const data = q.data;
 
-// ================= 🎯 ОБРОБКА КНОПОК =================
-bot.on('callback_query', (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
+  bot.answerCallbackQuery(q.id);
 
-  bot.answerCallbackQuery(query.id);
-
+  // ===== CURRENCY =====
   if (data === 'currency') {
-    getCurrency(chatId);
-  }
-  else if (data === 'today_bd') {
-    const now = new Date();
-    const today = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const bd = BIRTHDAYS.find(b => b.date === today);
+    https.get('https://api.monobank.ua/api/v1/currency', (res) => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(d);
 
-    if (bd) {
-      bot.sendMessage(chatId, `🎂 Сьогодні день народження у: *${bd.name}*!`, { parse_mode: 'Markdown' });
-    } else {
-      bot.sendMessage(chatId, '😊 Сьогодні ніхто не святкує!');
-    }
-  }
-  else if (data === 'list_bd') {
-    if (BIRTHDAYS.length === 0) {
-      return bot.sendMessage(chatId, '📭 Список порожній');
-    }
+          const usd = r.find(x => x.currencyCodeA === 840);
+          const eur = r.find(x => x.currencyCodeA === 978);
 
-    const list = BIRTHDAYS.map(b => `🎁 ${b.name} — ${b.date}`).join('\n');
-    bot.sendMessage(chatId, `📋 *Дні народження:*\n${list}`, { parse_mode: 'Markdown' });
-  }
-  else if (data === 'ping_router') {
-    const target = ROUTER_IP || '8.8.8.8';
-    bot.sendMessage(chatId, '🔄 Перевіряю...');
-
-    https.get(`https://${target}`, { timeout: 5000 })
-      .on('response', () => bot.sendMessage(chatId, '🟢 Інтернет працює!'))
-      .on('error', () => {
-        http.get(`http://${target}`, { timeout: 3000 })
-          .on('response', () => bot.sendMessage(chatId, '🟢 Роутер відповідає!'))
-          .on('error', () => bot.sendMessage(chatId, '🔴 Нема зв\'язку'));
+          bot.sendMessage(chatId,
+            `💱 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
+            `💱 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`);
+        } catch {
+          bot.sendMessage(chatId, '❌ error currency');
+        }
       });
+    });
+  }
+
+  // ===== TODAY BD =====
+  if (data === 'today_bd') {
+    const today = new Date();
+    const d = `${String(today.getDate()).padStart(2,'0')}.${String(today.getMonth()+1).padStart(2,'0')}`;
+
+    const bd = BIRTHDAYS.find(x => x.date === d);
+
+    bot.sendMessage(chatId,
+      bd ? `🎂 ${bd.name}` : '📭 нікого');
+  }
+
+  // ===== LIST BD =====
+  if (data === 'list_bd') {
+    bot.sendMessage(chatId,
+      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
+  }
+
+  // ===== INTERNET CHECK (FIXED) =====
+  if (data === 'ping_router') {
+    bot.sendMessage(chatId, '🔄 check...');
+
+    const checkInternet = () => {
+      https.get('https://api.monobank.ua', { timeout: 4000 }, () => {
+        bot.sendMessage(chatId, '🟢 Інтернет є');
+      }).on('error', () => {
+        bot.sendMessage(chatId, '🔴 Нема інтернету');
+      });
+    };
+
+    // 1️⃣ try router HTTP
+    http.get(`http://${ROUTER_IP}`, { timeout: 3000 }, () => {
+      checkInternet();
+    }).on('error', () => {
+      // 2️⃣ fallback HTTPS
+      https.get(`https://${ROUTER_IP}`, { timeout: 3000 }, () => {
+        checkInternet();
+      }).on('error', () => {
+        bot.sendMessage(chatId, '🔴 роутер недоступний');
+      });
+    });
   }
 });
 
-// ================= 💱 КУРС =================
-function getCurrency(chatId) {
-  bot.sendMessage(chatId, '🔄 Завантажую курс...');
-
-  https.get('https://api.monobank.ua/api/v1/currency', (res) => {
-    let data = '';
-
-    res.on('data', chunk => data += chunk);
-    res.on('end', () => {
-      try {
-        const rates = JSON.parse(data);
-        const usd = rates.find(r => r.currencyCodeA === 840 && r.currencyCodeB === 980);
-        const eur = rates.find(r => r.currencyCodeA === 978 && r.currencyCodeB === 980);
-
-        let text = '💱 *Курс валют*\n';
-        if (usd) text += `🇺🇸 USD: ${usd.rateBuy} / ${usd.rateSell}\n`;
-        if (eur) text += `🇪 EUR: ${eur.rateBuy} / ${eur.rateSell}`;
-
-        bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-      } catch {
-        bot.sendMessage(chatId, '❌ Помилка обробки');
-      }
-    });
-  }).on('error', () => {
-    bot.sendMessage(chatId, '❌ Помилка з\'єднання');
-  });
-}
-
-// ================= ⏰ ТАЙМЕР =================
+// ================= TIMER =================
 setInterval(() => {
   const now = new Date();
 
-  const hours = now.getHours().toString().padStart(2, '0');
-  const minutes = now.getMinutes().toString().padStart(2, '0');
-  const time = `${hours}:${minutes}`;
+  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 
-  console.log(`⏰ ${time}`);
+  SCHEDULE.forEach(t => {
+    if (!t.active) return;
 
-  // Розклад
-  SCHEDULE.forEach(task => {
-    if (!task.active) return;
+    if (t.time === time) {
+      const key = t.time + t.message;
 
-    if (task.time === time) {
-      const key = `${task.time}-${task.message}`;
-
-      if (!sentScheduleTasks.includes(key)) {
-        let msg = task.message;
-
-        if (task.userId) {
-          msg = `<a href="tg://user?id=${task.userId}">User</a>, ${msg}`;
-        }
-
-        bot.sendMessage(ADMIN_CHAT_ID, msg, { parse_mode: 'HTML' });
-        sentScheduleTasks.push(key);
-
-        console.log(`📢 Відправлено: ${task.message}`);
+      if (!sentTasks.includes(key)) {
+        bot.sendMessage(ADMIN_CHAT_ID, t.message);
+        sentTasks.push(key);
       }
     }
   });
 
-  // Скидання раз на день
-  if (time === '00:01') {
-    sentScheduleTasks = [];
-  }
+  if (time === '00:01') sentTasks = [];
 
-  // Інтернет (раз на 5 хв)
-  if (now.getMinutes() % 5 === 0) {
-    https.get('https://api.monobank.ua', () => {
-      if (routerAutoState.isOffline) {
-        routerAutoState.isOffline = false;
-        bot.sendMessage(ADMIN_CHAT_ID, `🟢 Інтернет є (${time})`);
-      }
-    }).on('error', () => {
-      if (!routerAutoState.isOffline) {
-        routerAutoState.isOffline = true;
-        bot.sendMessage(ADMIN_CHAT_ID, `🔴 Нема інтернету (${time})`);
-      }
-    });
-  }
+}, 10000);
 
-}, 10000); // 🔥 ключове виправлення
-
-// ================= 🌐 SERVER =================
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
+// ================= SERVER =================
+http.createServer((_, res) => {
   res.end('OK');
-}).listen(PORT);
+}).listen(process.env.PORT || 3000);
 
-console.log('✅ Bot started');
+console.log('✅ bot running');
