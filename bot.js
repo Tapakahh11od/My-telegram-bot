@@ -3,8 +3,6 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
 const axios = require('axios');
-const ping = require('ping');
-const net = require('net');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -33,7 +31,9 @@ try {
 // ================= BOT =================
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
+// 🔥 IMPORTANT: стабільне зберігання відправлених задач
 let sentTasks = new Set();
+let lastDate = null;
 
 // ================= CAT =================
 bot.on('message', (msg) => {
@@ -69,101 +69,94 @@ bot.on('callback_query', async (q) => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  try {
-    bot.answerCallbackQuery(q.id);
+  bot.answerCallbackQuery(q.id);
 
-    // ================= 💱 CURRENCY =================
-    if (data === 'currency') {
+  // ================= CURRENCY =================
+  if (data === 'currency') {
+    try {
       const res = await axios.get('https://api.monobank.ua/bank/currency');
 
       const usd = res.data.find(c => c.currencyCodeA === 840 && c.currencyCodeB === 980);
       const eur = res.data.find(c => c.currencyCodeA === 978 && c.currencyCodeB === 980);
 
-      return bot.sendMessage(
+      bot.sendMessage(
         chatId,
         `💱 Курс валют\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
         `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
+    } catch {
+      bot.sendMessage(chatId, '❌ Помилка курсу');
+    }
+  }
+
+  // ================= BD =================
+  if (data === 'today_bd') {
+    const now = new Date();
+    const today =
+      String(now.getDate()).padStart(2, '0') +
+      '.' +
+      String(now.getMonth() + 1).padStart(2, '0');
+
+    const bd = BIRTHDAYS.find(x => x.date === today);
+
+    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні немає імениника');
+  }
+
+  if (data === 'list_bd') {
+    bot.sendMessage(
+      chatId,
+      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
+    );
+  }
+
+  // ================= INTERNET CHECK =================
+  if (data === 'ping_router') {
+    bot.sendMessage(chatId, '🔄 перевіряю інтернет...');
+
+    if (!ROUTER_IP) {
+      return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
     }
 
-    // ================= BD =================
-    if (data === 'today_bd') {
-      const now = new Date();
-      const today =
-        String(now.getDate()).padStart(2, '0') +
-        '.' +
-        String(now.getMonth() + 1).padStart(2, '0');
+    const req = http.get(`http://${ROUTER_IP}`, { timeout: 4000 }, () => {
+      bot.sendMessage(chatId, '🟢 Роутер відповідає → інтернет є');
+    });
 
-      const bd = BIRTHDAYS.find(x => x.date === today);
+    req.on('error', () => {
+      bot.sendMessage(chatId, '🔴 Роутер недоступний → інтернету немає');
+    });
 
-      return bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні немає імениника');
-    }
-
-    if (data === 'list_bd') {
-      return bot.sendMessage(
-        chatId,
-        BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
-      );
-    }
-
-    // ================= 🌐 INTERNET (FIXED) =================
-    if (data === 'ping_router') {
-      bot.sendMessage(chatId, '🔄 перевіряю роутер...');
-
-      if (!ROUTER_IP) {
-        return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
-      }
-
-      // 1️⃣ ICMP ping
-      const result = await ping.promise.probe(ROUTER_IP, {
-        timeout: 2
-      });
-
-      if (result.alive) {
-        return bot.sendMessage(chatId, '🟢 Пінг є → інтернет має бути');
-      }
-
-      // 2️⃣ fallback TCP
-      const socket = new net.Socket();
-      socket.setTimeout(3000);
-
-      socket.on('connect', () => {
-        socket.destroy();
-        bot.sendMessage(chatId, '🟢 Роутер відповідає (TCP)');
-      });
-
-      socket.on('timeout', () => {
-        socket.destroy();
-        bot.sendMessage(chatId, '🔴 Нема відповіді від роутера');
-      });
-
-      socket.on('error', () => {
-        bot.sendMessage(chatId, '🔴 Роутер недоступний');
-      });
-
-      socket.connect(80, ROUTER_IP);
-    }
-
-  } catch (err) {
-    console.error('Callback error:', err.message);
-    bot.sendMessage(chatId, '❌ Сталася помилка');
+    req.on('timeout', () => {
+      req.destroy();
+      bot.sendMessage(chatId, '🔴 Таймаут → роутер не відповідає');
+    });
   }
 });
 
-// ================= FIXED SCHEDULE =================
+// ================= 🔥 FIXED SCHEDULE ENGINE =================
 setInterval(() => {
   const now = new Date();
 
-  const time =
-    String(now.getHours()).padStart(2, '0') +
-    ':' +
-    String(now.getMinutes()).padStart(2, '0');
+  // 🇺🇦 Kyiv time (ВАЖЛИВО)
+  const time = now.toLocaleTimeString('uk-UA', {
+    timeZone: 'Europe/Kyiv',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+
+  const todayDate = now.toISOString().split('T')[0];
+
+  // 🔄 новий день → очищення
+  if (lastDate !== todayDate) {
+    sentTasks.clear();
+    lastDate = todayDate;
+  }
 
   SCHEDULE.forEach(task => {
     if (!task.active) return;
 
-    const key = task.time + task.message;
+    const key = `${todayDate}-${task.time}-${task.message}`;
 
     if (task.time === time && !sentTasks.has(key)) {
       bot.sendMessage(ADMIN_CHAT_ID, task.message);
@@ -173,12 +166,7 @@ setInterval(() => {
     }
   });
 
-  // reset щодня
-  if (time === '00:01') {
-    sentTasks.clear();
-  }
-
-}, 1000);
+}, 15000); // 🔥 15 сек — стабільно на Render
 
 // ================= SERVER =================
 http.createServer((_, res) => {
