@@ -122,7 +122,8 @@ bot.on('callback_query', (query) => {
         }
       });
     }).on('error', () => {
-      bot.sendMessage(chatId, '❌ Помилка з'єднання з Mono');
+      // ✅ ВИПРАВЛЕНО: подвійні лапки або екранування апострофа
+      bot.sendMessage(chatId, "❌ Помилка з'єднання з Mono");
     });
   }
 
@@ -157,10 +158,9 @@ bot.on('callback_query', (query) => {
     https.get(`https://${target}`, { timeout: 5000 })
       .on('response', () => bot.sendMessage(chatId, '🟢 Інтернет працює!'))
       .on('error', () => {
-        // Спробуємо HTTP
         http.get(`http://${target}`, { timeout: 3000 })
           .on('response', () => bot.sendMessage(chatId, '🟢 Роутер відповідає!'))
-          .on('error', () => bot.sendMessage(chatId, '🔴 Нема зв'язку'));
+          .on('error', () => bot.sendMessage(chatId, '🔴 Нема звязку'));
       });
   }
 
