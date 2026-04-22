@@ -3,17 +3,32 @@ const https = require('https');
 
 /**
  * Отримує курс валют з MonoBank API
- * @param {string} chatId - ID чату для відправки повідомлення
+ * @param {string} chatId - ID чату
  * @param {Object} bot - Екземпляр TelegramBot
- * @param {Function} answerCallback - Функція для відповіді на callback
  */
-function getCurrency(chatId, bot, answerCallback) {
+function getCurrency(chatId, bot) {
   return new Promise((resolve, reject) => {
-    https.get('https://api.monobank.ua/api/v1/currency', { timeout: 10000 }, (res) => {
+    https.get('https://api.monobank.ua/api/v1/currency', { 
+      timeout: 10000,
+      headers: { 'User-Agent': 'TelegramBot/1.0' }
+    }, (res) => {
       let rawData = '';
+      
+      // Перевірка статус-коду
+      if (res.statusCode !== 200) {
+        bot.sendMessage(chatId, '❌ Сервіс недоступний');
+        reject(new Error(`Status ${res.statusCode}`));
+        return;
+      }
+      
       res.on('data', chunk => rawData += chunk);
       res.on('end', () => {
         try {
+          // Перевірка, що відповідь — JSON
+          if (!rawData.trim().startsWith('{') && !rawData.trim().startsWith('[')) {
+            throw new Error('Invalid JSON response');
+          }
+          
           const rates = JSON.parse(rawData);
           const usd = rates.find(r => r.currencyCodeA === 840 && r.currencyCodeB === 980);
           const eur = rates.find(r => r.currencyCodeA === 978 && r.currencyCodeB === 980);

@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
-const { getCurrency } = require('./currency'); // 🔥 Імпортуємо модуль валют
+const { getCurrency } = require('./currency');
 
 // 🔐 ENV
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -11,7 +11,7 @@ const ROUTER_IP = process.env.ROUTER_IP;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GIST_ID = process.env.GIST_ID;
 
-// 🎂 Дні народження (з виправленням ключів з пробілами)
+// 🎂 Дні народження (з виправленням ключів)
 let BIRTHDAYS = [];
 try {
   const raw = require('./birthdays.json');
@@ -21,7 +21,7 @@ try {
   }));
 } catch (e) { console.log('⚠️ birthdays.json не знайдено'); }
 
-// 📅 Розклад (з виправленням ключів з пробілами)
+// 📅 Розклад (з виправленням ключів)
 let SCHEDULE = [];
 try {
   const raw = require('./schedule.json');
@@ -63,24 +63,13 @@ bot.on('message', (msg) => {
   }
 });
 
-// ================= 📋 МЕНЮ =================
+// ================= 📋 МЕНЮ (спрощене) =================
 const mainMenu = {
   inline_keyboard: [
     [{ text: '💱 Курс валют', callback_data: 'currency' }],
     [{ text: '🎂 Хто сьогодні іменинник?', callback_data: 'today_bd' }],
     [{ text: '📜 Весь список ДН', callback_data: 'list_bd' }],
-    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }],
-    [{ text: '🆔 ID чату', callback_data: 'chat_id' }],
-    [{ text: '💸 Облік витрат', callback_data: 'expenses_menu' }]
-  ]
-};
-
-const expensesMenu = {
-  inline_keyboard: [
-    [{ text: '➕ Додати витрату', callback_data: 'add_expense' }],
-    [{ text: '📅 Витрати за сьогодні', callback_data: 'today_expenses' }],
-    [{ text: '📊 Витрати за місяць', callback_data: 'month_expenses' }],
-    [{ text: '🔙 Назад', callback_data: 'back_to_main' }]
+    [{ text: '🌐 Перевірка інтернету', callback_data: 'ping_router' }]
   ]
 };
 
@@ -93,15 +82,15 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, '👋 Привіт! Надішліть /bot для меню', { reply_markup: mainMenu });
 });
 
-// ================= 🎯 ОБРОБКА КНОПОК (callback_query) =================
+// ================= 🎯 ОБРОБКА КНОПОК =================
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  // 💱 Курс валют (винесено в окремий файл)
+  // 💱 Курс валют
   if (data === 'currency') {
-    bot.answerCallbackQuery(query.id, { text: 'Завантажую курс...' });
-    getCurrency(chatId, bot, () => {});
+    bot.answerCallbackQuery(query.id); // ✅ Відповідаємо НЕГАЙНО
+    getCurrency(chatId, bot);
   }
 
   // 🎂 Сьогодні іменинник
@@ -130,8 +119,10 @@ bot.on('callback_query', (query) => {
 
   // 🌐 Перевірка інтернету
   else if (data === 'ping_router') {
-    bot.answerCallbackQuery(query.id, { text: 'Перевіряю...' });
+    bot.answerCallbackQuery(query.id);
     const target = ROUTER_IP || '8.8.8.8';
+    bot.sendMessage(chatId, '🔄 Перевіряю...');
+    
     https.get(`https://${target}`, { timeout: 5000 })
       .on('response', () => bot.sendMessage(chatId, '🟢 Інтернет працює!'))
       .on('error', () => {
@@ -141,42 +132,9 @@ bot.on('callback_query', (query) => {
       });
   }
 
-  // 🆔 ID чату
-  else if (data === 'chat_id') {
-    bot.answerCallbackQuery(query.id);
-    bot.sendMessage(chatId, `🆔 ID цього чату: \`${chatId}\``, { parse_mode: 'Markdown' });
-  }
-
-  // 💸 Меню витрат
-  else if (data === 'expenses_menu') {
-    bot.answerCallbackQuery(query.id);
-    bot.sendMessage(chatId, '💸 Облік витрат:', { reply_markup: expensesMenu });
-  }
-
-  // ➕ Додати витрату (заглушка)
-  else if (data === 'add_expense') {
-    bot.answerCallbackQuery(query.id, { text: 'Функція в розробці 🔧' });
-  }
-
-  // 📅 Витрати за сьогодні (заглушка)
-  else if (data === 'today_expenses') {
-    bot.answerCallbackQuery(query.id, { text: 'Функція в розробці 🔧' });
-  }
-
-  // 📊 Витрати за місяць (заглушка)
-  else if (data === 'month_expenses') {
-    bot.answerCallbackQuery(query.id, { text: 'Функція в розробці 🔧' });
-  }
-
-  // 🔙 Назад до головного
-  else if (data === 'back_to_main') {
-    bot.answerCallbackQuery(query.id);
-    bot.sendMessage(chatId, '📋 Головне меню:', { reply_markup: mainMenu });
-  }
-
   // Невідома кнопка
   else {
-    bot.answerCallbackQuery(query.id, { text: 'Невідома дія' });
+    bot.answerCallbackQuery(query.id);
   }
 });
 
@@ -207,7 +165,7 @@ setInterval(() => {
     }
   });
 
-  // Очищення списку відправлених опівночі
+  // Очищення списку опівночі
   if (time === '00:01') {
     sentScheduleTasks = [];
   }
