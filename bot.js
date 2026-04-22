@@ -3,6 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
 const axios = require('axios');
+const ping = require('ping');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -23,7 +24,7 @@ try {
 let SCHEDULE = [];
 try {
   SCHEDULE = require('./schedule.json');
-  console.log('✅ schedule loaded');
+  console.log('✅ schedule loaded:', SCHEDULE.length);
 } catch {
   console.log('⚠️ schedule missing');
 }
@@ -31,7 +32,7 @@ try {
 // ================= BOT =================
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-let sentTasks = [];
+let sentTasks = new Set();
 let routerState = { offline: false };
 
 // ================= CAT =================
@@ -39,7 +40,11 @@ bot.on('message', (msg) => {
   if (!msg.text) return;
 
   if (msg.text.toLowerCase() === 'кіт') {
-    const arr = ['🐱 мяу', '🐱 кусь', '🐱 спить'];
+    const arr = [
+      '🐱 Тицяє лапкою і каже маааау!',
+      '🐱 Робить кусь за жопку!',
+      '🐱 Чорне падло спить! Храп-храп!'
+    ];
     bot.sendMessage(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
   }
 });
@@ -47,7 +52,7 @@ bot.on('message', (msg) => {
 // ================= MENU =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс валют', callback_data: 'currency' }],
+    [{ text: '💱 Космічний кур валют', callback_data: 'currency' }],
     [{ text: '🎂 ДН сьогодні', callback_data: 'today_bd' }],
     [{ text: '📜 Список ДН', callback_data: 'list_bd' }],
     [{ text: '🌐 Інтернет', callback_data: 'ping_router' }]
@@ -56,7 +61,7 @@ const mainMenu = {
 
 // ================= COMMANDS =================
 bot.onText(/\/start|\/bot/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📋 Меню', { reply_markup: mainMenu });
+  bot.sendMessage(msg.chat.id, '📋 Котоменю', { reply_markup: mainMenu });
 });
 
 // ================= CALLBACK =================
@@ -66,7 +71,7 @@ bot.on('callback_query', async (q) => {
 
   bot.answerCallbackQuery(q.id);
 
-  // ================= 💱 CURRENCY (FIXED) =================
+  // ================= 💱 CURRENCY =================
   if (data === 'currency') {
     try {
       const res = await axios.get('https://api.monobank.ua/bank/currency');
@@ -74,84 +79,81 @@ bot.on('callback_query', async (q) => {
       const usd = res.data.find(c => c.currencyCodeA === 840 && c.currencyCodeB === 980);
       const eur = res.data.find(c => c.currencyCodeA === 978 && c.currencyCodeB === 980);
 
-      await bot.sendMessage(
+      bot.sendMessage(
         chatId,
-        `💱 *Курс валют*\n\n` +
+        `💱 Курс валют\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
-        `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`,
-        { parse_mode: 'Markdown' }
+        `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
-
-    } catch (e) {
-      console.log('Currency error:', e.message);
-      bot.sendMessage(chatId, '❌ Помилка курсу валют');
+    } catch {
+      bot.sendMessage(chatId, '❌ Помилка курсу');
     }
   }
 
-  // ================= 🎂 TODAY BD =================
+  // ================= BD =================
   if (data === 'today_bd') {
     const now = new Date();
-    const today = `${String(now.getDate()).padStart(2,'0')}.${String(now.getMonth()+1).padStart(2,'0')}`;
+    const today =
+      String(now.getDate()).padStart(2, '0') +
+      '.' +
+      String(now.getMonth() + 1).padStart(2, '0');
 
     const bd = BIRTHDAYS.find(x => x.date === today);
 
     bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 нікого');
   }
 
-  // ================= 📜 LIST BD =================
   if (data === 'list_bd') {
-    bot.sendMessage(
-      chatId,
-      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
-    );
+    bot.sendMessage(chatId, BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
   }
 
-  // ================= 🌐 INTERNET CHECK =================
+  // ================= 🌐 PING FIXED =================
   if (data === 'ping_router') {
-    bot.sendMessage(chatId, '🔄 check...');
+    bot.sendMessage(chatId, '🔄 пінгую роутер...');
 
-    const checkInternet = () => {
-      https.get('https://api.monobank.ua', { timeout: 4000 }, () => {
-        bot.sendMessage(chatId, '🟢 Інтернет є');
-      }).on('error', () => {
-        bot.sendMessage(chatId, '🔴 Нема інтернету');
-      });
-    };
+    if (!ROUTER_IP) {
+      return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
+    }
 
-    http.get(`http://${ROUTER_IP}`, { timeout: 3000 }, () => {
-      checkInternet();
-    }).on('error', () => {
-      https.get(`https://${ROUTER_IP}`, { timeout: 3000 }, () => {
-        checkInternet();
-      }).on('error', () => {
-        bot.sendMessage(chatId, '🔴 роутер недоступний');
-      });
+    const result = await ping.promise.probe(ROUTER_IP, {
+      timeout: 2
     });
+
+    if (result.alive) {
+      bot.sendMessage(chatId, '🟢 Пінг є → інтернет має бути');
+    } else {
+      bot.sendMessage(chatId, '🔴 Пінг відсутній → інтернету немає');
+    }
   }
 });
 
-// ================= TIMER =================
+// ================= FIXED SCHEDULE =================
 setInterval(() => {
   const now = new Date();
 
-  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const time =
+    String(now.getHours()).padStart(2, '0') +
+    ':' +
+    String(now.getMinutes()).padStart(2, '0');
 
-  SCHEDULE.forEach(t => {
-    if (!t.active) return;
+  SCHEDULE.forEach(task => {
+    if (!task.active) return;
 
-    if (t.time === time) {
-      const key = t.time + t.message;
+    const key = task.time + task.message;
 
-      if (!sentTasks.includes(key)) {
-        bot.sendMessage(ADMIN_CHAT_ID, t.message);
-        sentTasks.push(key);
-      }
+    if (task.time === time && !sentTasks.has(key)) {
+      bot.sendMessage(ADMIN_CHAT_ID, task.message);
+      sentTasks.add(key);
+
+      console.log('📢 sent:', task.message);
     }
   });
 
-  if (time === '00:01') sentTasks = [];
-
-}, 10000);
+  // reset щодня
+  if (time === '00:01') {
+    sentTasks.clear();
+  }
+}, 1000);
 
 // ================= SERVER =================
 http.createServer((_, res) => {
