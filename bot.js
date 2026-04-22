@@ -2,14 +2,13 @@ require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
+const https = require('https');
 const { getCurrency } = require('./currency');
 
-// 🔐 ENV
+// 🔐 ENV — тільки потрібні змінні
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const ROUTER_IP = process.env.ROUTER_IP;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GIST_ID = process.env.GIST_ID;
 
 // 🎂 Дні народження (з виправленням ключів)
 let BIRTHDAYS = [];
@@ -36,13 +35,13 @@ try {
   console.log('⚠️ schedule.json не знайдено');
 }
 
-// 🔥 Перевірка змінних
-if (!BOT_TOKEN || !GITHUB_TOKEN || !GIST_ID) {
-  console.error('❌ Не вистачає змінних');
+// 🔥 Перевірка ТІЛЬКИ потрібних змінних
+if (!BOT_TOKEN) {
+  console.error('❌ Не вистачає BOT_TOKEN');
   process.exit(1);
 }
 if (!ADMIN_CHAT_ID) {
-  console.error('❌ Нема ADMIN_CHAT_ID');
+  console.error('❌ Не вистачає ADMIN_CHAT_ID');
   process.exit(1);
 }
 
@@ -89,10 +88,9 @@ bot.on('callback_query', (query) => {
 
   // 💱 Курс валют
   if (data === 'currency') {
-    bot.answerCallbackQuery(query.id); // ✅ Відповідаємо НЕГАЙНО
+    bot.answerCallbackQuery(query.id);
     getCurrency(chatId, bot);
   }
-
   // 🎂 Сьогодні іменинник
   else if (data === 'today_bd') {
     bot.answerCallbackQuery(query.id);
@@ -105,7 +103,6 @@ bot.on('callback_query', (query) => {
       bot.sendMessage(chatId, '😊 Сьогодні ніхто не святкує!');
     }
   }
-
   // 📜 Весь список ДН
   else if (data === 'list_bd') {
     bot.answerCallbackQuery(query.id);
@@ -116,13 +113,11 @@ bot.on('callback_query', (query) => {
     const list = BIRTHDAYS.map(b => `🎁 ${b.name} — ${b.date}`).join('\n');
     bot.sendMessage(chatId, `📋 *Дні народження:*\n${list}`, { parse_mode: 'Markdown' });
   }
-
   // 🌐 Перевірка інтернету
   else if (data === 'ping_router') {
     bot.answerCallbackQuery(query.id);
     const target = ROUTER_IP || '8.8.8.8';
     bot.sendMessage(chatId, '🔄 Перевіряю...');
-    
     https.get(`https://${target}`, { timeout: 5000 })
       .on('response', () => bot.sendMessage(chatId, '🟢 Інтернет працює!'))
       .on('error', () => {
@@ -131,8 +126,6 @@ bot.on('callback_query', (query) => {
           .on('error', () => bot.sendMessage(chatId, '🔴 Нема звязку'));
       });
   }
-
-  // Невідома кнопка
   else {
     bot.answerCallbackQuery(query.id);
   }
@@ -165,10 +158,7 @@ setInterval(() => {
     }
   });
 
-  // Очищення списку опівночі
-  if (time === '00:01') {
-    sentScheduleTasks = [];
-  }
+  if (time === '00:01') sentScheduleTasks = [];
 
   // Моніторинг інтернету
   https.get('https://api.monobank.ua', { timeout: 5000 }, () => {
@@ -182,7 +172,6 @@ setInterval(() => {
       bot.sendMessage(ADMIN_CHAT_ID, `🔴 Нема інтернету (${time})`);
     }
   });
-
 }, 60000);
 
 // ================= 🌐 HTTP SERVER (для Render) =================
