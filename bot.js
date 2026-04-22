@@ -1,41 +1,14 @@
 require('dotenv').config();
-
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
-const { getCurrency } = require('./currency');
 
-// 🔐 ENV — тільки потрібні змінні
+// 🔐 ENV - тільки необхідні змінні
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const ROUTER_IP = process.env.ROUTER_IP;
 
-// 🎂 Дні народження (з виправленням ключів)
-let BIRTHDAYS = [];
-try {
-  const raw = require('./birthdays.json');
-  BIRTHDAYS = raw.map(b => ({
-    name: (b.name || b['name '] || '').trim(),
-    date: (b.date || b['date '] || '').trim()
-  }));
-} catch (e) { console.log('⚠️ birthdays.json не знайдено'); }
-
-// 📅 Розклад (з виправленням ключів)
-let SCHEDULE = [];
-try {
-  const raw = require('./schedule.json');
-  SCHEDULE = raw.map(task => ({
-    time: (task.time || task['time '] || '').trim(),
-    message: (task.message || task['message '] || '').trim(),
-    active: task.active ?? task['active '] ?? true,
-    userId: task.userId
-  }));
-  console.log('✅ schedule.json завантажено');
-} catch (e) {
-  console.log('⚠️ schedule.json не знайдено');
-}
-
-// 🔥 Перевірка ТІЛЬКИ потрібних змінних
+// Перевірка змінних
 if (!BOT_TOKEN) {
   console.error('❌ Не вистачає BOT_TOKEN');
   process.exit(1);
@@ -43,6 +16,33 @@ if (!BOT_TOKEN) {
 if (!ADMIN_CHAT_ID) {
   console.error('❌ Не вистачає ADMIN_CHAT_ID');
   process.exit(1);
+}
+
+// 🎂 Дні народження
+let BIRTHDAYS = [];
+try {
+  const raw = require('./birthdays.json');
+  BIRTHDAYS = raw.map(b => ({
+    name: (b.name || '').trim(),
+    date: (b.date || '').trim()
+  }));
+} catch (e) { 
+  console.log('⚠️ birthdays.json не знайдено'); 
+}
+
+// 📅 Розклад
+let SCHEDULE = [];
+try {
+  const raw = require('./schedule.json');
+  SCHEDULE = raw.map(task => ({
+    time: (task.time || '').trim(),
+    message: (task.message || '').trim(),
+    active: task.active !== false,
+    userId: task.userId
+  }));
+  console.log('✅ schedule.json завантажено');
+} catch (e) {
+  console.log('⚠️ schedule.json не знайдено');
 }
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -62,7 +62,7 @@ bot.on('message', (msg) => {
   }
 });
 
-// ================= 📋 МЕНЮ (спрощене) =================
+// ================= 📋 МЕНЮ =================
 const mainMenu = {
   inline_keyboard: [
     [{ text: '💱 Курс валют', callback_data: 'currency' }],
@@ -89,7 +89,7 @@ bot.on('callback_query', (query) => {
   // 💱 Курс валют
   if (data === 'currency') {
     bot.answerCallbackQuery(query.id);
-    getCurrency(chatId, bot);
+    getCurrency(chatId);
   }
   // 🎂 Сьогодні іменинник
   else if (data === 'today_bd') {
@@ -118,18 +118,74 @@ bot.on('callback_query', (query) => {
     bot.answerCallbackQuery(query.id);
     const target = ROUTER_IP || '8.8.8.8';
     bot.sendMessage(chatId, '🔄 Перевіряю...');
+    
     https.get(`https://${target}`, { timeout: 5000 })
       .on('response', () => bot.sendMessage(chatId, '🟢 Інтернет працює!'))
       .on('error', () => {
         http.get(`http://${target}`, { timeout: 3000 })
           .on('response', () => bot.sendMessage(chatId, '🟢 Роутер відповідає!'))
-          .on('error', () => bot.sendMessage(chatId, '🔴 Нема звязку'));
+          .on('error', () => bot.sendMessage(chatId, '🔴 Нема зв'язку'));
       });
   }
-  else {
-    bot.answerCallbackQuery(query.id);
-  }
 });
+
+// ================= 💱 ФУНКЦІЯ ОТРИМАННЯ КУРСУ =================
+function getCurrency(chatId) {
+  bot.sendMessage(chatId, '🔄 Завантажую курс...');
+  
+  const options = {
+    hostname: 'api.monobank.ua',
+    path: '/api/v1/currency',
+    method: 'GET',
+    timeout: 10000
+  };
+
+  const req = https.request(options, (res) => {
+    let rawData = '';
+    
+    if (res.statusCode !== 200) {
+      bot.sendMessage(chatId, '❌ Сервіс недоступний');
+      return;
+    }
+    
+    res.on('data', (chunk) => {
+      rawData += chunk;
+    });
+    
+    res.on('end', () => {
+      try {
+        const rates = JSON.parse(rawData);
+        const usd = rates.find(r => r.currencyCodeA === 840 && r.currencyCodeB === 980);
+        const eur = rates.find(r => r.currencyCodeA === 978 && r.currencyCodeB === 980);
+        
+        let text = '💱 *Курс валют (Mono)*\n';
+        if (usd) {
+          text += `🇺🇸 USD: купівля ${usd.rateBuy.toFixed(2)}, продаж ${usd.rateSell.toFixed(2)}\n`;
+        }
+        if (eur) {
+          text += `🇪 EUR: купівля ${eur.rateBuy.toFixed(2)}, продаж ${eur.rateSell.toFixed(2)}`;
+        }
+        
+        bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+      } catch (e) {
+        console.error('Currency parse error:', e);
+        bot.sendMessage(chatId, '❌ Не вдалося обробити дані');
+      }
+    });
+  });
+
+  req.on('error', (e) => {
+    console.error('Currency request error:', e);
+    bot.sendMessage(chatId, "❌ Помилка з'єднання з Mono");
+  });
+
+  req.on('timeout', () => {
+    req.destroy();
+    bot.sendMessage(chatId, '⏱️ Перевищено час очікування');
+  });
+
+  req.end();
+}
 
 // ================= ⏰ ТАЙМЕР =================
 setInterval(() => {
@@ -158,7 +214,10 @@ setInterval(() => {
     }
   });
 
-  if (time === '00:01') sentScheduleTasks = [];
+  // Очищення списку опівночі
+  if (time === '00:01') {
+    sentScheduleTasks = [];
+  }
 
   // Моніторинг інтернету
   https.get('https://api.monobank.ua', { timeout: 5000 }, () => {
@@ -176,7 +235,7 @@ setInterval(() => {
 
 // ================= 🌐 HTTP SERVER (для Render) =================
 const PORT = process.env.PORT || 3000;
-http.createServer((_, res) => {
+http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('OK');
 }).listen(PORT);
