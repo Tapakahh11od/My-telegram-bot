@@ -4,6 +4,7 @@ const http = require('http');
 const https = require('https');
 const axios = require('axios');
 const ping = require('ping');
+const net = require('net');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -33,7 +34,6 @@ try {
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 let sentTasks = new Set();
-let routerState = { offline: false };
 
 // ================= CAT =================
 bot.on('message', (msg) => {
@@ -69,61 +69,85 @@ bot.on('callback_query', async (q) => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  bot.answerCallbackQuery(q.id);
+  try {
+    bot.answerCallbackQuery(q.id);
 
-  // ================= 💱 CURRENCY =================
-  if (data === 'currency') {
-    try {
+    // ================= 💱 CURRENCY =================
+    if (data === 'currency') {
       const res = await axios.get('https://api.monobank.ua/bank/currency');
 
       const usd = res.data.find(c => c.currencyCodeA === 840 && c.currencyCodeB === 980);
       const eur = res.data.find(c => c.currencyCodeA === 978 && c.currencyCodeB === 980);
 
-      bot.sendMessage(
+      return bot.sendMessage(
         chatId,
         `💱 Курс валют\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
         `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
-    } catch {
-      bot.sendMessage(chatId, '❌ Помилка курсу');
-    }
-  }
-
-  // ================= BD =================
-  if (data === 'today_bd') {
-    const now = new Date();
-    const today =
-      String(now.getDate()).padStart(2, '0') +
-      '.' +
-      String(now.getMonth() + 1).padStart(2, '0');
-
-    const bd = BIRTHDAYS.find(x => x.date === today);
-
-    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 нікого');
-  }
-
-  if (data === 'list_bd') {
-    bot.sendMessage(chatId, BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
-  }
-
-  // ================= 🌐 PING FIXED =================
-  if (data === 'ping_router') {
-    bot.sendMessage(chatId, '🔄 пінгую роутер...');
-
-    if (!ROUTER_IP) {
-      return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
     }
 
-    const result = await ping.promise.probe(ROUTER_IP, {
-      timeout: 2
-    });
+    // ================= BD =================
+    if (data === 'today_bd') {
+      const now = new Date();
+      const today =
+        String(now.getDate()).padStart(2, '0') +
+        '.' +
+        String(now.getMonth() + 1).padStart(2, '0');
 
-    if (result.alive) {
-      bot.sendMessage(chatId, '🟢 Пінг є → інтернет має бути');
-    } else {
-      bot.sendMessage(chatId, '🔴 Пінг відсутній → інтернету немає');
+      const bd = BIRTHDAYS.find(x => x.date === today);
+
+      return bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні немає імениника');
     }
+
+    if (data === 'list_bd') {
+      return bot.sendMessage(
+        chatId,
+        BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
+      );
+    }
+
+    // ================= 🌐 INTERNET (FIXED) =================
+    if (data === 'ping_router') {
+      bot.sendMessage(chatId, '🔄 перевіряю роутер...');
+
+      if (!ROUTER_IP) {
+        return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
+      }
+
+      // 1️⃣ ICMP ping
+      const result = await ping.promise.probe(ROUTER_IP, {
+        timeout: 2
+      });
+
+      if (result.alive) {
+        return bot.sendMessage(chatId, '🟢 Пінг є → інтернет має бути');
+      }
+
+      // 2️⃣ fallback TCP
+      const socket = new net.Socket();
+      socket.setTimeout(3000);
+
+      socket.on('connect', () => {
+        socket.destroy();
+        bot.sendMessage(chatId, '🟢 Роутер відповідає (TCP)');
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+        bot.sendMessage(chatId, '🔴 Нема відповіді від роутера');
+      });
+
+      socket.on('error', () => {
+        bot.sendMessage(chatId, '🔴 Роутер недоступний');
+      });
+
+      socket.connect(80, ROUTER_IP);
+    }
+
+  } catch (err) {
+    console.error('Callback error:', err.message);
+    bot.sendMessage(chatId, '❌ Сталася помилка');
   }
 });
 
@@ -153,6 +177,7 @@ setInterval(() => {
   if (time === '00:01') {
     sentTasks.clear();
   }
+
 }, 1000);
 
 // ================= SERVER =================
