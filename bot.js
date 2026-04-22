@@ -1,7 +1,6 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
-const https = require('https');
 const axios = require('axios');
 
 // ================= ENV =================
@@ -28,8 +27,20 @@ try {
 }
 
 // ================= BOT =================
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(BOT_TOKEN, {
+  polling: {
+    params: {
+      timeout: 10
+    }
+  }
+});
 
+// ================= SAFETY =================
+process.on('unhandledRejection', (e) => {
+  console.log('Unhandled:', e.message);
+});
+
+// ================= MEMORY =================
 let sentTasks = new Set();
 let lastDate = null;
 
@@ -50,7 +61,7 @@ bot.on('message', (msg) => {
 // ================= MENU =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Космічний курс валют', callback_data: 'currency' }],
+    [{ text: '💱 Курс валют', callback_data: 'currency' }],
     [{ text: '🎂 ДН сьогодні', callback_data: 'today_bd' }],
     [{ text: '📜 Список ДН', callback_data: 'list_bd' }]
   ]
@@ -58,7 +69,7 @@ const mainMenu = {
 
 // ================= COMMANDS =================
 bot.onText(/\/start|\/bot/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📋 Котоменю', { reply_markup: mainMenu });
+  bot.sendMessage(msg.chat.id, '📋 Меню', { reply_markup: mainMenu });
 });
 
 // ================= CALLBACK =================
@@ -68,7 +79,7 @@ bot.on('callback_query', async (q) => {
 
   bot.answerCallbackQuery(q.id);
 
-  // ================= CURRENCY =================
+  // ===== CURRENCY =====
   if (data === 'currency') {
     try {
       const res = await axios.get('https://api.monobank.ua/bank/currency');
@@ -78,16 +89,16 @@ bot.on('callback_query', async (q) => {
 
       bot.sendMessage(
         chatId,
-        `🚀 Космічний курс валют 🛰️\n\n` +
+        `💱 Курс валют\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
         `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
-    } catch {
+    } catch (e) {
       bot.sendMessage(chatId, '❌ Помилка курсу');
     }
   }
 
-  // ================= BD =================
+  // ===== BIRTHDAYS =====
   if (data === 'today_bd') {
     const now = new Date();
     const today =
@@ -97,55 +108,58 @@ bot.on('callback_query', async (q) => {
 
     const bd = BIRTHDAYS.find(x => x.date === today);
 
-    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні немає імениника');
+    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 сьогодні нікого');
   }
 
   if (data === 'list_bd') {
-    bot.sendMessage(
-      chatId,
-      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
-    );
+    bot.sendMessage(chatId, BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
   }
 });
 
-// ================= 🔥 FIXED SCHEDULE ENGINE (100% RELIABLE) =================
+// ================= SCHEDULER (FIXED 100%) =================
+function getKyivTime() {
+  return new Date().toLocaleTimeString('uk-UA', {
+    timeZone: 'Europe/Kyiv',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
+function getDateKey() {
+  return new Date().toLocaleDateString('sv-SE', {
+    timeZone: 'Europe/Kyiv'
+  });
+}
+
 setInterval(() => {
-  const now = new Date();
+  const time = getKyivTime();
+  const today = getDateKey();
 
-  // 🔥 FIX: стабільний Kyiv time
-  const kyiv = new Date(
-    now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' })
-  );
-
-  const hh = String(kyiv.getHours()).padStart(2, '0');
-  const mm = String(kyiv.getMinutes()).padStart(2, '0');
-  const time = `${hh}:${mm}`;
-
-  const todayDate = kyiv.toISOString().split('T')[0];
-
-  // 🔄 reset кожен новий день
-  if (lastDate !== todayDate) {
+  // reset кожного дня
+  if (lastDate !== today) {
     sentTasks.clear();
-    lastDate = todayDate;
-    console.log('🔄 new day reset');
+    lastDate = today;
+    console.log('🔄 New day reset scheduler');
   }
 
-  // ================= SCHEDULE CHECK =================
   SCHEDULE.forEach(task => {
     if (!task.active) return;
 
-    const taskTime = (task.time || '').trim();
-    const key = `${todayDate}-${taskTime}-${task.message}`;
+    const key = `${today}-${task.time}-${task.message}`;
 
-    if (taskTime === time && !sentTasks.has(key)) {
-      bot.sendMessage(ADMIN_CHAT_ID, task.message);
-      sentTasks.add(key);
-
-      console.log('📢 SENT:', taskTime, task.message);
+    if (task.time === time && !sentTasks.has(key)) {
+      try {
+        bot.sendMessage(ADMIN_CHAT_ID, task.message);
+        sentTasks.add(key);
+        console.log('📢 SENT:', task.time, task.message);
+      } catch (e) {
+        console.log('Send error:', e.message);
+      }
     }
   });
 
-}, 5000); // 🔥 кожні 5 секунд (НЕ МОЖНА ПРОПУСТИТИ)
+}, 5000);
 
 // ================= SERVER =================
 http.createServer((_, res) => {
