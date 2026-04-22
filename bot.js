@@ -7,7 +7,6 @@ const axios = require('axios');
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
-const ROUTER_IP = process.env.ROUTER_IP;
 
 if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
   console.error('❌ Missing ENV');
@@ -31,7 +30,6 @@ try {
 // ================= BOT =================
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 🔥 IMPORTANT: стабільне зберігання відправлених задач
 let sentTasks = new Set();
 let lastDate = null;
 
@@ -52,10 +50,9 @@ bot.on('message', (msg) => {
 // ================= MENU =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Космічний кур валют', callback_data: 'currency' }],
+    [{ text: '💱 Космічний курс валют', callback_data: 'currency' }],
     [{ text: '🎂 ДН сьогодні', callback_data: 'today_bd' }],
-    [{ text: '📜 Список ДН', callback_data: 'list_bd' }],
-    [{ text: '🌐 Інтернет', callback_data: 'ping_router' }]
+    [{ text: '📜 Список ДН', callback_data: 'list_bd' }]
   ]
 };
 
@@ -81,7 +78,7 @@ bot.on('callback_query', async (q) => {
 
       bot.sendMessage(
         chatId,
-        `💱 Курс валют\n\n` +
+        `🚀 Космічний курс валют 🛰️\n\n` +
         `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
         `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`
       );
@@ -109,64 +106,46 @@ bot.on('callback_query', async (q) => {
       BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
     );
   }
-
-  // ================= INTERNET CHECK =================
-  if (data === 'ping_router') {
-    bot.sendMessage(chatId, '🔄 перевіряю інтернет...');
-
-    if (!ROUTER_IP) {
-      return bot.sendMessage(chatId, '⚠️ ROUTER_IP не заданий');
-    }
-
-    const req = http.get(`http://${ROUTER_IP}`, { timeout: 4000 }, () => {
-      bot.sendMessage(chatId, '🟢 Роутер відповідає → інтернет є');
-    });
-
-    req.on('error', () => {
-      bot.sendMessage(chatId, '🔴 Роутер недоступний → інтернету немає');
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      bot.sendMessage(chatId, '🔴 Таймаут → роутер не відповідає');
-    });
-  }
 });
 
-// ================= 🔥 FIXED SCHEDULE ENGINE =================
+// ================= 🔥 FIXED SCHEDULE ENGINE (100% RELIABLE) =================
 setInterval(() => {
   const now = new Date();
 
-  // 🇺🇦 Kyiv time (ВАЖЛИВО)
-  const time = now.toLocaleTimeString('uk-UA', {
-    timeZone: 'Europe/Kyiv',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
+  // 🔥 FIX: стабільний Kyiv time
+  const kyiv = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' })
+  );
 
-  const todayDate = now.toISOString().split('T')[0];
+  const hh = String(kyiv.getHours()).padStart(2, '0');
+  const mm = String(kyiv.getMinutes()).padStart(2, '0');
+  const time = `${hh}:${mm}`;
 
-  // 🔄 новий день → очищення
+  const todayDate = kyiv.toISOString().split('T')[0];
+
+  // 🔄 reset кожен новий день
   if (lastDate !== todayDate) {
     sentTasks.clear();
     lastDate = todayDate;
+    console.log('🔄 new day reset');
   }
 
+  // ================= SCHEDULE CHECK =================
   SCHEDULE.forEach(task => {
     if (!task.active) return;
 
-    const key = `${todayDate}-${task.time}-${task.message}`;
+    const taskTime = (task.time || '').trim();
+    const key = `${todayDate}-${taskTime}-${task.message}`;
 
-    if (task.time === time && !sentTasks.has(key)) {
+    if (taskTime === time && !sentTasks.has(key)) {
       bot.sendMessage(ADMIN_CHAT_ID, task.message);
       sentTasks.add(key);
 
-      console.log('📢 sent:', task.message);
+      console.log('📢 SENT:', taskTime, task.message);
     }
   });
 
-}, 15000); // 🔥 15 сек — стабільно на Render
+}, 5000); // 🔥 кожні 5 секунд (НЕ МОЖНА ПРОПУСТИТИ)
 
 // ================= SERVER =================
 http.createServer((_, res) => {
