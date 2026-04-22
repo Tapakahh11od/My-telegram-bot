@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
-const https = require('https');
+const { getCurrency } = require('./currency'); // 🔥 Імпортуємо модуль валют
 
 // 🔐 ENV
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -98,33 +98,10 @@ bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  // 💱 Курс валют
+  // 💱 Курс валют (винесено в окремий файл)
   if (data === 'currency') {
     bot.answerCallbackQuery(query.id, { text: 'Завантажую курс...' });
-    https.get('https://api.monobank.ua/api/v1/currency', { timeout: 10000 }, (res) => {
-      let rawData = '';
-      res.on('data', chunk => rawData += chunk);
-      res.on('end', () => {
-        try {
-          const rates = JSON.parse(rawData);
-          const usd = rates.find(r => r.currencyCodeA === 840 && r.currencyCodeB === 980);
-          const eur = rates.find(r => r.currencyCodeA === 978 && r.currencyCodeB === 980);
-          let text = `💱 *Курс валют (Mono)*\n`;
-          if (usd) {
-            text += `🇺🇸 USD: купівля ${usd.rateBuy?.toFixed(2)}, продаж ${usd.rateSell?.toFixed(2)}\n`;
-          }
-          if (eur) {
-            text += `🇪🇺 EUR: купівля ${eur.rateBuy?.toFixed(2)}, продаж ${eur.rateSell?.toFixed(2)}`;
-          }
-          bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-        } catch (e) {
-          bot.sendMessage(chatId, '❌ Не вдалося отримати курс валют');
-        }
-      });
-    }).on('error', () => {
-      // ✅ ВИПРАВЛЕНО: подвійні лапки або екранування апострофа
-      bot.sendMessage(chatId, "❌ Помилка з'єднання з Mono");
-    });
+    getCurrency(chatId, bot, () => {});
   }
 
   // 🎂 Сьогодні іменинник
