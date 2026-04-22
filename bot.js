@@ -5,10 +5,10 @@ const axios = require('axios');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
-let ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 
-if (!BOT_TOKEN) {
-  console.error('❌ Missing BOT_TOKEN');
+if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
+  console.error('❌ Missing ENV');
   process.exit(1);
 }
 
@@ -41,24 +41,29 @@ async function safeSend(chatId, text, options = {}) {
   }
 }
 
-// ================= AUTO DETECT CHAT ID (FIX FOR SUPERGROUP) =================
+// ================= CAT =================
 bot.on('message', (msg) => {
-  if (!ADMIN_CHAT_ID) {
-    ADMIN_CHAT_ID = msg.chat.id;
-    console.log('📌 Auto ADMIN_CHAT_ID set:', ADMIN_CHAT_ID);
-  }
-
   if (!msg.text) return;
 
-  // ================= CAT =================
-  if (msg.text.toLowerCase() === 'кіт') {
+  const text = msg.text.toLowerCase();
+
+  // 🆔 /idchat COMMAND
+  if (text === '/idchat') {
+    return safeSend(
+      msg.chat.id,
+      `🆔 Chat ID:\n${msg.chat.id}`
+    );
+  }
+
+  // 🐱 CAT
+  if (text === 'кіт') {
     const arr = [
       '🐱 Тицяє лапкою і каже маааау!',
       '🐱 Робить кусь за жопку!',
       '🐱 Чорне падло спить! Храп-храп!'
     ];
 
-    safeSend(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
+    return safeSend(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
   }
 });
 
@@ -102,7 +107,7 @@ bot.on('callback_query', async (q) => {
     }
   }
 
-  // ===== BIRTHDAYS =====
+  // ===== BD =====
   if (data === 'today_bd') {
     const now = new Date();
     const today =
@@ -120,7 +125,7 @@ bot.on('callback_query', async (q) => {
   }
 });
 
-// ================= FIXED SCHEDULER =================
+// ================= SCHEDULER =================
 function getKyivTime() {
   return new Date().toLocaleTimeString('uk-UA', {
     timeZone: 'Europe/Kyiv',
@@ -140,7 +145,6 @@ setInterval(() => {
   const time = getKyivTime();
   const today = getDate();
 
-  // reset щодня
   if (lastDate !== today) {
     sentTasks.clear();
     lastDate = today;
@@ -162,7 +166,7 @@ setInterval(() => {
 
 }, 5000);
 
-// ================= SERVER (KEEP ALIVE) =================
+// ================= SERVER =================
 http.createServer((_, res) => {
   res.end('OK');
 }).listen(process.env.PORT || 3000);
