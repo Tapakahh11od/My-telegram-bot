@@ -2,6 +2,7 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const https = require('https');
+const axios = require('axios');
 
 // ================= ENV =================
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -9,7 +10,7 @@ const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const ROUTER_IP = process.env.ROUTER_IP;
 
 if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
-  console.error('❌ Missing ENV vars');
+  console.error('❌ Missing ENV');
   process.exit(1);
 }
 
@@ -38,11 +39,7 @@ bot.on('message', (msg) => {
   if (!msg.text) return;
 
   if (msg.text.toLowerCase() === 'кіт') {
-    const arr = [
-      '🐱 Мяу!',
-      '🐱 Кусь!',
-      '🐱 Пішов спати'
-    ];
+    const arr = ['🐱 мяу', '🐱 кусь', '🐱 спить'];
     bot.sendMessage(msg.chat.id, arr[Math.floor(Math.random() * arr.length)]);
   }
 });
@@ -50,7 +47,7 @@ bot.on('message', (msg) => {
 // ================= MENU =================
 const mainMenu = {
   inline_keyboard: [
-    [{ text: '💱 Курс', callback_data: 'currency' }],
+    [{ text: '💱 Курс валют', callback_data: 'currency' }],
     [{ text: '🎂 ДН сьогодні', callback_data: 'today_bd' }],
     [{ text: '📜 Список ДН', callback_data: 'list_bd' }],
     [{ text: '🌐 Інтернет', callback_data: 'ping_router' }]
@@ -69,46 +66,47 @@ bot.on('callback_query', async (q) => {
 
   bot.answerCallbackQuery(q.id);
 
-  // ===== CURRENCY =====
+  // ================= 💱 CURRENCY (FIXED) =================
   if (data === 'currency') {
-    https.get('https://api.monobank.ua/api/v1/currency', (res) => {
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => {
-        try {
-          const r = JSON.parse(d);
+    try {
+      const res = await axios.get('https://api.monobank.ua/bank/currency');
 
-          const usd = r.find(x => x.currencyCodeA === 840);
-          const eur = r.find(x => x.currencyCodeA === 978);
+      const usd = res.data.find(c => c.currencyCodeA === 840 && c.currencyCodeB === 980);
+      const eur = res.data.find(c => c.currencyCodeA === 978 && c.currencyCodeB === 980);
 
-          bot.sendMessage(chatId,
-            `💱 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
-            `💱 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`);
-        } catch {
-          bot.sendMessage(chatId, '❌ error currency');
-        }
-      });
-    });
+      await bot.sendMessage(
+        chatId,
+        `💱 *Курс валют*\n\n` +
+        `🇺🇸 USD: ${usd?.rateBuy ?? '-'} / ${usd?.rateSell ?? '-'}\n` +
+        `🇪🇺 EUR: ${eur?.rateBuy ?? '-'} / ${eur?.rateSell ?? '-'}`,
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (e) {
+      console.log('Currency error:', e.message);
+      bot.sendMessage(chatId, '❌ Помилка курсу валют');
+    }
   }
 
-  // ===== TODAY BD =====
+  // ================= 🎂 TODAY BD =================
   if (data === 'today_bd') {
-    const today = new Date();
-    const d = `${String(today.getDate()).padStart(2,'0')}.${String(today.getMonth()+1).padStart(2,'0')}`;
+    const now = new Date();
+    const today = `${String(now.getDate()).padStart(2,'0')}.${String(now.getMonth()+1).padStart(2,'0')}`;
 
-    const bd = BIRTHDAYS.find(x => x.date === d);
+    const bd = BIRTHDAYS.find(x => x.date === today);
 
-    bot.sendMessage(chatId,
-      bd ? `🎂 ${bd.name}` : '📭 нікого');
+    bot.sendMessage(chatId, bd ? `🎂 ${bd.name}` : '📭 нікого');
   }
 
-  // ===== LIST BD =====
+  // ================= 📜 LIST BD =================
   if (data === 'list_bd') {
-    bot.sendMessage(chatId,
-      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty');
+    bot.sendMessage(
+      chatId,
+      BIRTHDAYS.map(b => `🎁 ${b.name} - ${b.date}`).join('\n') || 'empty'
+    );
   }
 
-  // ===== INTERNET CHECK (FIXED) =====
+  // ================= 🌐 INTERNET CHECK =================
   if (data === 'ping_router') {
     bot.sendMessage(chatId, '🔄 check...');
 
@@ -120,11 +118,9 @@ bot.on('callback_query', async (q) => {
       });
     };
 
-    // 1️⃣ try router HTTP
     http.get(`http://${ROUTER_IP}`, { timeout: 3000 }, () => {
       checkInternet();
     }).on('error', () => {
-      // 2️⃣ fallback HTTPS
       https.get(`https://${ROUTER_IP}`, { timeout: 3000 }, () => {
         checkInternet();
       }).on('error', () => {
