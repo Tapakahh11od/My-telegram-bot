@@ -1,4 +1,13 @@
 [
-  { "time": "22:00", "message": "⏰ Маааау!!! Час ширятися @iakbasheva!!!", "active": true },
-  { "time": "15:35", "message": "⏰ Нагадування: Час пограти в травіан!!!", "active": true }
+  {
+    "time": "22:00",
+    "message": "⏰ Маааау!!! Час ширятися @iakbasheva!!!",
+    "active": true,
+    "video": "gif/eat.mp4"
+  },
+  {
+    "time": "15:35",
+    "message": "⏰ Нагадування: Час пограти в травіан!!!",
+    "active": false
+  }
 ]
